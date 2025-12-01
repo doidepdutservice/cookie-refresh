@@ -1,0 +1,33 @@
+name: Refresh Cookies
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # chạy mỗi 10 phút
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: npm install --force
+
+      - name: Run refresh multi-thread
+        run: npm run refresh
+
+      - name: Commit & push changes
+        run: |
+          git config --global user.name "GitHub Bot"
+          git config --global user.email "bot@github.com"
+          git add cookies.json
+          git commit -m "update cookies at $(date)" || echo "No changes"
+          git push
