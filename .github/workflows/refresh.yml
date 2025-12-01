@@ -18,9 +18,9 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install axios tough-cookie axios-cookiejar-support p-queue
+        run: npm install axios tough-cookie axios-cookiejar-support p-queue https-proxy-agent
 
-      - name: Run refresh multi-thread
+      - name: Run refresh multi-thread + proxy
         run: node refresh.js
 
       - name: Commit updated cookies
