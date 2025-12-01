@@ -2,7 +2,7 @@ name: Refresh Cookies
 
 on:
   schedule:
-    - cron: "*/10 * * * *"  # chạy mỗi 10 phút
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -18,10 +18,10 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install axios tough-cookie axios-cookiejar-support p-queue https-proxy-agent
+        run: npm install
 
       - name: Run refresh multi-thread + proxy
-        run: node refresh.js
+        run: npm run refresh
 
       - name: Commit updated cookies
         run: |
