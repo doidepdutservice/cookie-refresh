@@ -3,6 +3,7 @@ import axios from "axios";
 import { CookieJar } from "tough-cookie";
 import { wrapper } from "axios-cookiejar-support";
 import PQueue from "p-queue";
+import HttpsProxyAgent from "https-proxy-agent";
 
 const COOKIES_FILE = "./cookies.json";
 const MAX_CONCURRENCY = 20;
@@ -12,7 +13,7 @@ let cookies = fs.existsSync(COOKIES_FILE)
   ? JSON.parse(fs.readFileSync(COOKIES_FILE, "utf8"))
   : {};
 
-// Decode JWT
+// ================= JWT helper =================
 function decodeJwt(token) {
   try {
     const payload = token.split(".")[1];
@@ -38,7 +39,7 @@ function isTokenAlmostExpired(token, thresholdSeconds = 600) {
   return data.exp - now <= thresholdSeconds;
 }
 
-// Refresh 1 cookie
+// ================= Refresh 1 cookie =================
 async function refreshSingle(key, item) {
   const privyToken = extractPrivyToken(item.cookieRaw);
   if (!privyToken) return { key, ok: false, error: "No privy-token" };
@@ -46,9 +47,28 @@ async function refreshSingle(key, item) {
 
   try {
     const jar = new CookieJar();
-    const client = wrapper(
-      axios.create({ jar, withCredentials: true, timeout: 15000 })
-    );
+    const axiosConfig = {
+      jar,
+      withCredentials: true,
+      timeout: 15000,
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": "Bearer " + privyToken,
+        "privy-app-id": "cm6jesuxd00a9ojo0i9rlxudk",
+        "origin": "https://quests.agnthub.ai",
+        "referer": "https://quests.agnthub.ai/",
+        "user-agent": item.userAgent || "Mozilla/5.0",
+        "cookie": item.cookieRaw
+      }
+    };
+
+    // Nếu có proxy, thêm agent
+    if (item.proxy) {
+      axiosConfig.httpsAgent = new HttpsProxyAgent(item.proxy);
+    }
+
+    const client = wrapper(axios.create(axiosConfig));
 
     item.cookieRaw.split(";").forEach(c => {
       try {
@@ -58,19 +78,7 @@ async function refreshSingle(key, item) {
 
     await client.post(
       "https://privy.agnthub.ai/api/v1/sessions",
-      { refresh_token: "deprecated" },
-      {
-        headers: {
-          "accept": "application/json",
-          "content-type": "application/json",
-          "authorization": "Bearer " + privyToken,
-          "privy-app-id": "cm6jesuxd00a9ojo0i9rlxudk",
-          "origin": "https://quests.agnthub.ai",
-          "referer": "https://quests.agnthub.ai/",
-          "user-agent": item.userAgent || "Mozilla/5.0",
-          "cookie": item.cookieRaw
-        }
-      }
+      { refresh_token: "deprecated" }
     );
 
     const newCookies = await jar.getCookies("https://privy.agnthub.ai");
@@ -82,6 +90,7 @@ async function refreshSingle(key, item) {
   }
 }
 
+// ================= Main =================
 async function run() {
   const queue = new PQueue({ concurrency: MAX_CONCURRENCY });
   const keys = Object.keys(cookies);
