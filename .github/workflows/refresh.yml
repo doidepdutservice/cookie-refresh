@@ -10,24 +10,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install deps
-        run: npm install --force
+      - name: Install dependencies
+        run: npm install axios tough-cookie axios-cookiejar-support p-queue
 
       - name: Run refresh multi-thread
-        run: npm run refresh
+        run: node refresh.js
 
-      - name: Commit & push changes
+      - name: Commit updated cookies
         run: |
           git config --global user.name "GitHub Bot"
           git config --global user.email "bot@github.com"
           git add cookies.json
-          git commit -m "update cookies at $(date)" || echo "No changes"
+          git commit -m "Auto refresh cookies at $(date)" || echo "No changes"
           git push
