@@ -1,0 +1,12 @@
+{
+  "abc123": {
+    "cookieRaw": "privy-token=xxx; other_cookie=yyy",
+    "proxy": "http://user:pass@ip:port",
+    "userAgent": "Mozilla/5.0..."
+  },
+  "def456": {
+    "cookieRaw": "privy-token=aaa; other_cookie=bbb",
+    "proxy": "http://user:pass@ip:port",
+    "userAgent": "Mozilla/5.0..."
+  }
+}
