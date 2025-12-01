@@ -1,78 +1,119 @@
 import fs from "fs";
 import axios from "axios";
-import PQueue from "p-queue";   // promise pool
+import { CookieJar } from "tough-cookie";
+import { wrapper } from "axios-cookiejar-support";
+import PQueue from "p-queue";
 
-const MAX_CONCURRENCY = 20;     // chạy song song 20 request
-const DELAY_MS = 200;           // delay nhẹ để tránh bị block
+const COOKIES_FILE = "./cookies.json";
+const MAX_CONCURRENCY = 20;
+const DELAY_MS = 100;
 
-const queue = new PQueue({ concurrency: MAX_CONCURRENCY });
+let cookies = fs.existsSync(COOKIES_FILE)
+  ? JSON.parse(fs.readFileSync(COOKIES_FILE, "utf8"))
+  : {};
 
-const cookiesFile = "./cookies.json";
-let cookies = JSON.parse(fs.readFileSync(cookiesFile, "utf8"));
-
-async function refreshCookie(key, item) {
+// Decode JWT
+function decodeJwt(token) {
   try {
-    const resp = await axios.get(
-      "https://your-api.com/refresh-cookie",
+    const payload = token.split(".")[1];
+    return JSON.parse(Buffer.from(payload, "base64").toString());
+  } catch {
+    return null;
+  }
+}
+
+function extractPrivyToken(raw) {
+  const parts = raw.split(";").map(x => x.trim());
+  for (let p of parts) {
+    const [k, v] = p.split("=");
+    if (k === "privy-token") return v;
+  }
+  return null;
+}
+
+function isTokenAlmostExpired(token, thresholdSeconds = 600) {
+  const data = decodeJwt(token);
+  if (!data || !data.exp) return true;
+  const now = Math.floor(Date.now() / 1000);
+  return data.exp - now <= thresholdSeconds;
+}
+
+// Refresh 1 cookie
+async function refreshSingle(key, item) {
+  const privyToken = extractPrivyToken(item.cookieRaw);
+  if (!privyToken) return { key, ok: false, error: "No privy-token" };
+  if (!isTokenAlmostExpired(privyToken)) return { key, ok: true, cookie: item.cookieRaw };
+
+  try {
+    const jar = new CookieJar();
+    const client = wrapper(
+      axios.create({ jar, withCredentials: true, timeout: 15000 })
+    );
+
+    item.cookieRaw.split(";").forEach(c => {
+      try {
+        jar.setCookieSync(c.trim(), "https://privy.agnthub.ai");
+      } catch {}
+    });
+
+    await client.post(
+      "https://privy.agnthub.ai/api/v1/sessions",
+      { refresh_token: "deprecated" },
       {
-        headers: { Cookie: item.cookie },
-        timeout: 15000,
+        headers: {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "authorization": "Bearer " + privyToken,
+          "privy-app-id": "cm6jesuxd00a9ojo0i9rlxudk",
+          "origin": "https://quests.agnthub.ai",
+          "referer": "https://quests.agnthub.ai/",
+          "user-agent": item.userAgent || "Mozilla/5.0",
+          "cookie": item.cookieRaw
+        }
       }
     );
 
-    // kết quả mới
-    const newCookie = resp.data.cookie;
+    const newCookies = await jar.getCookies("https://privy.agnthub.ai");
+    const newCookieRaw = newCookies.map(c => `${c.key}=${c.value}`).join("; ");
 
-    return {
-      key,
-      ok: true,
-      cookie: newCookie,
-    };
+    return { key, ok: true, cookie: newCookieRaw };
   } catch (err) {
-    return {
-      key,
-      ok: false,
-      error: err.message,
-    };
+    return { key, ok: false, error: err.message || err };
   }
 }
 
 async function run() {
+  const queue = new PQueue({ concurrency: MAX_CONCURRENCY });
   const keys = Object.keys(cookies);
   const results = [];
 
-  console.log(`🔄 Refresh ${keys.length} cookies…`);
-  console.log(`🔁 Running with concurrency = ${MAX_CONCURRENCY}`);
+  console.log(`🔄 Refreshing ${keys.length} cookies with concurrency=${MAX_CONCURRENCY}`);
 
   for (const key of keys) {
-    const data = cookies[key];
-
+    const item = cookies[key];
     queue.add(async () => {
-      const result = await refreshCookie(key, data);
+      const result = await refreshSingle(key, item);
       results.push(result);
 
       console.log(
-        `${result.ok ? "✔️" : "❌"} ${key} – ${
-          result.ok ? "refreshed" : "failed"
-        }`
+        `${result.ok ? "✔️" : "❌"} ${key} ${result.ok ? "refreshed" : result.error}`
       );
 
-      await new Promise((res) => setTimeout(res, DELAY_MS));
+      await new Promise(r => setTimeout(r, DELAY_MS));
     });
   }
 
-  // Đợi tất cả hoàn thành
   await queue.onIdle();
 
-  // Ghi lại cookies mới
+  // Update cookies.json
   for (const r of results) {
     if (r.ok) {
-      cookies[r.key].cookie = r.cookie;
+      cookies[r.key].cookieRaw = r.cookie;
     }
   }
 
-  fs.writeFileSync(cookiesFile, JSON.stringify(cookies, null, 2));
-  console.log("💾 Saved updated cookies.json");
+  fs.writeFileSync(COOKIES_FILE, JSON.stringify(cookies, null, 2));
+  console.log("💾 Cookies updated and saved!");
 }
 
 run();
