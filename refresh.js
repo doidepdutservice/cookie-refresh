@@ -13,7 +13,6 @@ let cookies = fs.existsSync(COOKIES_FILE)
   ? JSON.parse(fs.readFileSync(COOKIES_FILE, "utf8"))
   : {};
 
-// ================= JWT helper =================
 function decodeJwt(token) {
   try {
     const payload = token.split(".")[1];
@@ -39,7 +38,6 @@ function isTokenAlmostExpired(token, thresholdSeconds = 600) {
   return data.exp - now <= thresholdSeconds;
 }
 
-// ================= Refresh 1 cookie =================
 async function refreshSingle(key, item) {
   const privyToken = extractPrivyToken(item.cookieRaw);
   if (!privyToken) return { key, ok: false, error: "No privy-token" };
@@ -63,7 +61,6 @@ async function refreshSingle(key, item) {
       }
     };
 
-    // Nếu có proxy, thêm agent
     if (item.proxy) {
       axiosConfig.httpsAgent = new HttpsProxyAgent(item.proxy);
     }
@@ -71,9 +68,7 @@ async function refreshSingle(key, item) {
     const client = wrapper(axios.create(axiosConfig));
 
     item.cookieRaw.split(";").forEach(c => {
-      try {
-        jar.setCookieSync(c.trim(), "https://privy.agnthub.ai");
-      } catch {}
+      try { jar.setCookieSync(c.trim(), "https://privy.agnthub.ai"); } catch {}
     });
 
     await client.post(
@@ -90,7 +85,6 @@ async function refreshSingle(key, item) {
   }
 }
 
-// ================= Main =================
 async function run() {
   const queue = new PQueue({ concurrency: MAX_CONCURRENCY });
   const keys = Object.keys(cookies);
@@ -103,22 +97,15 @@ async function run() {
     queue.add(async () => {
       const result = await refreshSingle(key, item);
       results.push(result);
-
-      console.log(
-        `${result.ok ? "✔️" : "❌"} ${key} ${result.ok ? "refreshed" : result.error}`
-      );
-
+      console.log(`${result.ok ? "✔️" : "❌"} ${key} ${result.ok ? "refreshed" : result.error}`);
       await new Promise(r => setTimeout(r, DELAY_MS));
     });
   }
 
   await queue.onIdle();
 
-  // Update cookies.json
   for (const r of results) {
-    if (r.ok) {
-      cookies[r.key].cookieRaw = r.cookie;
-    }
+    if (r.ok) cookies[r.key].cookieRaw = r.cookie;
   }
 
   fs.writeFileSync(COOKIES_FILE, JSON.stringify(cookies, null, 2));
